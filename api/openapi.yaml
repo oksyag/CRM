@@ -1,0 +1,811 @@
+openapi: 3.1.0
+info:
+  title: CRM API для обработки лидов
+  version: 1.0.0
+  description: |
+    HTTP API для CRM обработки лидов. Покрывает создание лидов
+    (веб-форма и ручное создание), назначение ответственного,
+    смену статусов, конвертацию в клиента, список лидов и
+    справочник менеджеров.
+
+    Контракт согласован с документами проекта: overview, data-model,
+    glossary, nfr, integration, dor-dod, user stories US-01..US-04 и
+    use cases UC-01..UC-03.
+
+    Security-схема намеренно не описывается; контур доступа задаётся
+    конфигурацией среды.
+
+tags:
+  - name: leads
+    description: Создание и обработка лидов.
+  - name: managers
+    description: Справочник менеджеров для назначения.
+
+paths:
+  /web/leads:
+    post:
+      tags: [leads]
+      operationId: createLeadFromWebForm
+      summary: Создание лида из веб-формы
+      description: |
+        Создание лида из публичной веб-формы. Поле `source` фиксируется
+        CRM как `web` и в payload не передаётся. Выполняются валидация
+        обязательных полей, проверка `consent=true`, нормализация и
+        дедупликация по `phone` и `email`. Поддерживается заголовок
+        `Idempotency-Key`.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebLeadCreateRequest'
+            examples:
+              standard:
+                summary: Стандартная заявка
+                value:
+                  full_name: Иван Иванов
+                  phone: '+7 (901) 123-45-67'
+                  email: ivan@example.com
+                  consent: true
+      responses:
+        '201':
+          description: Лид создан (включая повторное обращение с `reopen_of_lead_id`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Lead'
+              examples:
+                new_lead:
+                  summary: Новый лид
+                  value:
+                    id: 1042
+                    source: web
+                    full_name: Иван Иванов
+                    phone: '+79011234567'
+                    email: ivan@example.com
+                    status: Новый
+                    assignee_id: null
+                    follow_up_at: null
+                    close_reason: null
+                    comment: null
+                    reopen_of_lead_id: null
+                    created_at: '2026-05-09T12:00:00Z'
+                    updated_at: '2026-05-09T12:00:00Z'
+                reopen_after_closed:
+                  summary: Повторное обращение после закрытого лида
+                  value:
+                    id: 1043
+                    source: web
+                    full_name: Иван Иванов
+                    phone: '+79011234567'
+                    email: ivan@example.com
+                    status: Новый
+                    assignee_id: null
+                    follow_up_at: null
+                    close_reason: null
+                    comment: null
+                    reopen_of_lead_id: 998
+                    created_at: '2026-05-09T12:01:00Z'
+                    updated_at: '2026-05-09T12:01:00Z'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          description: Активный дубликат по `phone`/`email` или конфликт идентичности.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                duplicate:
+                  summary: Активный дубликат
+                  value:
+                    code: duplicate
+                    message: Активный лид с таким email или телефоном уже существует.
+                    existing_lead_id: 998
+                conflict:
+                  summary: Конфликт идентичности
+                  value:
+                    code: conflict
+                    message: По email и телефону найдены разные активные лиды; требуется ручная проверка.
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /leads:
+    post:
+      tags: [leads]
+      operationId: createLeadManually
+      summary: Ручное создание лида менеджером
+      description: |
+        Ручное создание лида менеджером по каналам, отличным от веб-формы.
+        Значение `source=web` запрещено. Поле `consent` не используется.
+        Выполняются валидация, нормализация и дедупликация по `phone` и
+        `email`. Поддерживается заголовок `Idempotency-Key`.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ManualLeadCreateRequest'
+            examples:
+              from_call:
+                summary: Заявка по звонку
+                value:
+                  full_name: Анна Смирнова
+                  phone: '+7 (902) 555-12-12'
+                  email: anna@example.com
+                  source: phone
+                  comment: Перезвонить после 18:00.
+      responses:
+        '201':
+          description: Лид создан.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Lead'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          description: Активный дубликат или конфликт идентичности.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                duplicate:
+                  value:
+                    code: duplicate
+                    message: Активный лид с таким email или телефоном уже существует.
+                    existing_lead_id: 871
+                conflict:
+                  value:
+                    code: conflict
+                    message: По email и телефону найдены разные активные лиды; требуется ручная проверка.
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    get:
+      tags: [leads]
+      operationId: listLeads
+      summary: Список лидов с фильтрами и пагинацией
+      description: |
+        Возвращает страницу лидов. Поддерживаются фильтры по `status`,
+        `manager` (фильтрация по `assignee_id`) и `source`, а также
+        пагинация через `limit`/`offset`.
+      parameters:
+        - in: query
+          name: status
+          required: false
+          schema:
+            $ref: '#/components/schemas/LeadStatus'
+        - in: query
+          name: manager
+          required: false
+          description: Идентификатор ответственного (`assignee_id`).
+          schema:
+            type: integer
+            format: int64
+        - in: query
+          name: source
+          required: false
+          schema:
+            $ref: '#/components/schemas/LeadSource'
+        - in: query
+          name: limit
+          required: false
+          description: Размер страницы.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+        - in: query
+          name: offset
+          required: false
+          description: Смещение страницы от начала выборки.
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: Страница лидов.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeadListResponse'
+              examples:
+                page:
+                  value:
+                    items:
+                      - id: 1042
+                        source: web
+                        full_name: Иван Иванов
+                        phone: '+79011234567'
+                        email: ivan@example.com
+                        status: В работе
+                        assignee_id: 7
+                        follow_up_at: null
+                        close_reason: null
+                        comment: null
+                        reopen_of_lead_id: null
+                        created_at: '2026-05-09T12:00:00Z'
+                        updated_at: '2026-05-09T12:30:00Z'
+                    limit: 50
+                    offset: 0
+                    total: 1
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /leads/{id}:
+    get:
+      tags: [leads]
+      operationId: getLeadById
+      summary: Получение карточки лида
+      parameters:
+        - $ref: '#/components/parameters/LeadIdPath'
+      responses:
+        '200':
+          description: Карточка лида.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Lead'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /leads/{id}/assignee:
+    patch:
+      tags: [leads]
+      operationId: setLeadAssignee
+      summary: Назначение ответственного менеджера
+      description: |
+        Меняет только `assignee_id` лида. Перевод в статус `В работе`
+        выполняется отдельным вызовом `PATCH /leads/{id}/status`.
+      parameters:
+        - $ref: '#/components/parameters/LeadIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LeadAssigneeRequest'
+            examples:
+              standard:
+                value:
+                  assignee_id: 7
+      responses:
+        '200':
+          description: Назначение обновлено.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Lead'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Назначение запрещено (например, лид в финальном статусе).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                forbidden:
+                  value:
+                    code: transition_forbidden
+                    message: Назначение запрещено для лида в финальном статусе.
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /leads/{id}/status:
+    patch:
+      tags: [leads]
+      operationId: changeLeadStatus
+      summary: Смена статуса лида (кроме конвертации)
+      description: |
+        Допустимые целевые статусы: `В работе`, `Отложен`, `Ложный`,
+        `Отказ`. Значение `Успешно` запрещено — для конвертации
+        использовать `POST /leads/{id}/convert`. При `status=Отложен`
+        обязательно поле `follow_up_at`; при `status=Ложный` или
+        `status=Отказ` обязательно `close_reason`. Из финальных
+        статусов (`Успешно`, `Ложный`, `Отказ`) переходы запрещены.
+      parameters:
+        - $ref: '#/components/parameters/LeadIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LeadStatusChangeRequest'
+            examples:
+              to_in_progress:
+                summary: Перевод в работу
+                value:
+                  status: В работе
+              to_postponed:
+                summary: Отложить с датой follow-up
+                value:
+                  status: Отложен
+                  follow_up_at: '2026-05-15T10:00:00Z'
+              to_rejected:
+                summary: Закрыть как Отказ
+                value:
+                  status: Отказ
+                  close_reason: Клиент отказался от услуги.
+      responses:
+        '200':
+          description: Статус обновлён.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Lead'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Запрещённый переход статуса.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                forbidden:
+                  value:
+                    code: transition_forbidden
+                    message: Переход из текущего статуса в целевой запрещён.
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /leads/{id}/convert:
+    post:
+      tags: [leads]
+      operationId: convertLead
+      summary: Конвертация лида в клиента
+      description: |
+        Переводит лид в финальный статус `Успешно` и создаёт связанный
+        `Client`. Единственный путь к статусу `Успешно`. Тело запроса
+        пустое. Поддерживается заголовок `Idempotency-Key`.
+      parameters:
+        - $ref: '#/components/parameters/LeadIdPath'
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+            examples:
+              empty:
+                value: {}
+      responses:
+        '201':
+          description: Лид конвертирован, создан клиент.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeadConvertResponse'
+              examples:
+                converted:
+                  value:
+                    lead:
+                      id: 1042
+                      source: web
+                      full_name: Иван Иванов
+                      phone: '+79011234567'
+                      email: ivan@example.com
+                      status: Успешно
+                      assignee_id: 7
+                      follow_up_at: null
+                      close_reason: null
+                      comment: null
+                      reopen_of_lead_id: null
+                      created_at: '2026-05-09T12:00:00Z'
+                      updated_at: '2026-05-09T13:30:00Z'
+                    client:
+                      id: 304
+                      lead_id: 1042
+                      full_name: Иван Иванов
+                      phone: '+79011234567'
+                      email: ivan@example.com
+                      created_at: '2026-05-09T13:30:00Z'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Конвертация запрещена (например, лид уже в финальном статусе).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                forbidden:
+                  value:
+                    code: transition_forbidden
+                    message: Конвертация запрещена для лида в финальном статусе.
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /managers:
+    get:
+      tags: [managers]
+      operationId: listManagers
+      summary: Список менеджеров для назначения
+      description: |
+        Возвращает менеджеров. По умолчанию возвращаются только активные
+        записи (`is_active=true`). При `include_inactive=true` возвращаются
+        все менеджеры.
+      parameters:
+        - in: query
+          name: include_inactive
+          required: false
+          description: Если `true`, возвращаются и неактивные менеджеры.
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: Список менеджеров.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Manager'
+              examples:
+                active:
+                  summary: Только активные
+                  value:
+                    - id: 7
+                      name: Анна Иванова
+                      is_active: true
+                    - id: 12
+                      name: Сергей Петров
+                      is_active: true
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+components:
+  parameters:
+    LeadIdPath:
+      name: id
+      in: path
+      required: true
+      description: Идентификатор лида.
+      schema:
+        type: integer
+        format: int64
+    IdempotencyKeyHeader:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: |
+        Идемпотентный ключ для безопасного повтора. При повторном запросе
+        с тем же ключом CRM возвращает результат предыдущей обработки и
+        не создаёт новый лид/клиента.
+      schema:
+        type: string
+        maxLength: 255
+
+  responses:
+    BadRequest:
+      description: Ошибка валидации входных данных.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            missing_field:
+              value:
+                code: validation_error
+                message: Отсутствует обязательное поле email.
+            invalid_email:
+              value:
+                code: validation_error
+                message: Поле email имеет некорректный формат.
+            consent_required:
+              value:
+                code: validation_error
+                message: Поле consent должно быть равно true.
+    NotFound:
+      description: Ресурс не найден.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            lead_not_found:
+              value:
+                code: not_found
+                message: Лид не найден.
+    RateLimited:
+      description: Превышен лимит обращений (опциональный anti-spam guard).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            rate:
+              value:
+                code: rate_limited
+                message: Слишком много обращений с этих данных. Попробуйте позже.
+    InternalError:
+      description: Внутренняя ошибка сервера.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            internal:
+              value:
+                code: internal_error
+                message: Внутренняя ошибка. Повторите попытку позже.
+
+  schemas:
+    LeadStatus:
+      type: string
+      description: Статус жизненного цикла лида.
+      enum:
+        - Новый
+        - В работе
+        - Отложен
+        - Успешно
+        - Ложный
+        - Отказ
+
+    LeadSource:
+      type: string
+      description: Канал поступления лида.
+      enum:
+        - web
+        - phone
+        - chat
+        - social
+        - manual
+
+    ErrorCode:
+      type: string
+      description: Машинный код ошибки API.
+      enum:
+        - validation_error
+        - duplicate
+        - conflict
+        - not_found
+        - transition_forbidden
+        - rate_limited
+        - internal_error
+
+    Lead:
+      type: object
+      description: Лид на любом этапе жизненного цикла.
+      required:
+        - id
+        - source
+        - full_name
+        - phone
+        - email
+        - status
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: integer
+          format: int64
+        source:
+          $ref: '#/components/schemas/LeadSource'
+        full_name:
+          type: string
+        phone:
+          type: string
+        email:
+          type: string
+          format: email
+        status:
+          $ref: '#/components/schemas/LeadStatus'
+        assignee_id:
+          type: [integer, "null"]
+          format: int64
+          description: Ответственный менеджер; `null`, пока лид не назначен.
+        follow_up_at:
+          type: [string, "null"]
+          format: date-time
+          description: Обязательно при `status=Отложен`.
+        close_reason:
+          type: [string, "null"]
+          description: Обязательно при `status=Ложный` или `status=Отказ`.
+        comment:
+          type: [string, "null"]
+        reopen_of_lead_id:
+          type: [integer, "null"]
+          format: int64
+          description: Ссылка на предыдущий лид при повторном обращении после закрытия в `Ложный`/`Отказ`.
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    Client:
+      type: object
+      description: Клиент, созданный при конвертации лида в статус `Успешно`.
+      required:
+        - id
+        - lead_id
+        - full_name
+        - phone
+        - email
+        - created_at
+      properties:
+        id:
+          type: integer
+          format: int64
+        lead_id:
+          type: integer
+          format: int64
+        full_name:
+          type: string
+        phone:
+          type: string
+        email:
+          type: string
+          format: email
+        created_at:
+          type: string
+          format: date-time
+
+    Manager:
+      type: object
+      description: Менеджер, доступный для назначения.
+      required:
+        - id
+        - name
+        - is_active
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        is_active:
+          type: boolean
+
+    WebLeadCreateRequest:
+      type: object
+      description: |
+        Payload веб-формы. Поле `source` устанавливается CRM как `web` и
+        в payload не передаётся.
+      required:
+        - full_name
+        - phone
+        - email
+        - consent
+      properties:
+        full_name:
+          type: string
+        phone:
+          type: string
+        email:
+          type: string
+          format: email
+        consent:
+          type: boolean
+          description: Согласие на обработку данных. Должно быть `true`.
+
+    ManualLeadCreateRequest:
+      type: object
+      description: Payload для ручного создания лида менеджером.
+      required:
+        - full_name
+        - phone
+        - email
+        - source
+      properties:
+        full_name:
+          type: string
+        phone:
+          type: string
+        email:
+          type: string
+          format: email
+        source:
+          type: string
+          description: Канал ручного создания. Значение `web` запрещено.
+          enum:
+            - phone
+            - chat
+            - social
+            - manual
+        comment:
+          type: string
+
+    LeadAssigneeRequest:
+      type: object
+      required:
+        - assignee_id
+      properties:
+        assignee_id:
+          type: integer
+          format: int64
+          description: Идентификатор активного менеджера.
+
+    LeadStatusChangeRequest:
+      type: object
+      description: |
+        Запрос на смену статуса. Значение `Успешно` запрещено — для
+        конвертации использовать `POST /leads/{id}/convert`.
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum:
+            - В работе
+            - Отложен
+            - Ложный
+            - Отказ
+        follow_up_at:
+          type: string
+          format: date-time
+          description: Обязательно при `status=Отложен`.
+        close_reason:
+          type: string
+          description: Обязательно при `status=Ложный` или `status=Отказ`.
+
+    LeadConvertResponse:
+      type: object
+      required:
+        - lead
+        - client
+      properties:
+        lead:
+          $ref: '#/components/schemas/Lead'
+        client:
+          $ref: '#/components/schemas/Client'
+
+    LeadListResponse:
+      type: object
+      required:
+        - items
+        - limit
+        - offset
+        - total
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Lead'
+        limit:
+          type: integer
+        offset:
+          type: integer
+        total:
+          type: integer
+          description: Общее число лидов, удовлетворяющих фильтрам.
+
+    ErrorResponse:
+      type: object
+      description: Унифицированная ошибка API.
+      required:
+        - code
+        - message
+      properties:
+        code:
+          $ref: '#/components/schemas/ErrorCode'
+        message:
+          type: string
+        existing_lead_id:
+          type: [integer, "null"]
+          format: int64
+          description: Заполняется только при `code=duplicate`.
