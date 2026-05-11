@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>CRM для обработки лидов</title>
+    <meta name="description" content="Документация системного аналитика для мини-CRM обработки лидов: бизнес-контекст, требования, модель данных, API, SQL, диаграммы.">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <header class="site-header">
+        <div class="site-header__inner">
+            <a href="#" class="site-header__brand">CRM Leads</a>
+            <nav class="site-header__nav" aria-label="Основная навигация">
+                <a href="#about">О проекте</a>
+                <a href="#functional">Требования</a>
+                <a href="#data">Данные</a>
+                <a href="#api">API</a>
+                <a href="#sql">SQL</a>
+                <a href="#diagrams">Диаграммы</a>
+            </nav>
+            <a class="site-header__github" href="https://github.com/oksyag/CRM" target="_blank" rel="noopener noreferrer">GitHub ↗</a>
+        </div>
+    </header>
+
+    <main>
+        <section class="hero">
+            <h1>CRM для обработки лидов</h1>
+            <p class="hero__subtitle">Документация системного аналитика: бизнес-контекст, требования, модель данных, API, SQL, диаграммы.</p>
+            <div class="hero__actions">
+                <a class="btn" href="https://github.com/oksyag/CRM/blob/main/docs/overview.md">Overview</a>
+                <a class="btn" href="https://github.com/oksyag/CRM/blob/main/api/openapi.yaml">OpenAPI</a>
+                <a class="btn" href="https://github.com/oksyag/CRM/blob/main/diagrams/erd.mmd">ERD</a>
+                <a class="btn" href="https://github.com/oksyag/CRM" target="_blank" rel="noopener noreferrer">GitHub ↗</a>
+            </div>
+        </section>
+
+        <section id="about" class="section">
+            <h2>О проекте</h2>
+            <p>Мини-CRM для обработки входящих лидов из веб-формы и при ручном создании менеджером. Покрывает базовые сценарии: валидацию и дедупликацию по телефону и email, назначение ответственного, ведение по статусам, конвертацию в клиента или закрытие с причиной.</p>
+            <p>Проект ведётся в формате doc-as-code: все артефакты текстовые, лежат в репозитории и обновляются вместе с требованиями. Это упрощает версионирование и быстрое восстановление контекста.</p>
+            <ul class="chips">
+                <li>doc-as-code</li>
+                <li>OpenAPI 3.1</li>
+                <li>PostgreSQL</li>
+                <li>Mermaid</li>
+            </ul>
+        </section>
+
+        <section id="context" class="section">
+            <h2>Бизнес-контекст</h2>
+            <p>Цели, scope, stakeholders, нефункциональные требования, термины и DoR/DoD.</p>
+            <ul class="links">
+                <li><a href="https://github.com/oksyag/CRM/blob/main/docs/overview.md">overview.md — цель, scope, роли, жизненный цикл</a></li>
+                <li><a href="https://github.com/oksyag/CRM/blob/main/docs/nfr.md">nfr.md — нефункциональные требования</a></li>
+                <li><a href="https://github.com/oksyag/CRM/blob/main/docs/glossary.md">glossary.md — глоссарий терминов и полей</a></li>
+                <li><a href="https://github.com/oksyag/CRM/blob/main/docs/dor-dod.md">dor-dod.md — Definition of Ready / Definition of Done</a></li>
+            </ul>
+        </section>
+
+        <section id="functional" class="section">
+            <h2>Функциональные требования</h2>
+            <p>Четыре user stories и три use cases, объединённые traceability-таблицей.</p>
+            <ul class="links">
+                <li><a href="https://github.com/oksyag/CRM/blob/main/docs/functional/README.md">Обзор US и UC с traceability</a></li>
+            </ul>
+            <h3>User stories</h3>
+            <ul class="links">
+                <li><a href="https://github.com/oksyag/CRM/blob/main/docs/functional/user-stories/US-01-create-lead-from-web-form.md">US-01 — Создание лида из веб-формы</a></li>
+                <li><a href="https://github.com/oksyag/CRM/blob/main/docs/functional/user-stories/US-02-create-lead-manually.md">US-02 — Ручное создание лида менеджером</a></li>
+                <li><a href="https://github.com/oksyag/CRM/blob/main/docs/functional/user-stories/US-03-assign-lead-and-move-to-in-progress.md">US-03 — Назначение и перевод в работу</a></li>
+                <li><a href="https://github.com/oksyag/CRM/blob/main/docs/functional/user-stories/US-04-finalize-lead-outcome.md">US-04 — Финализация лида</a></li>
+            </ul>
+            <h3>Use cases</h3>
+            <ul class="links">
+                <li><a href="https://github.com/oksyag/CRM/blob/main/docs/functional/use-cases/UC-01-register-lead.md">UC-01 — Регистрация нового лида</a></li>
+                <li><a href="https://github.com/oksyag/CRM/blob/main/docs/functional/use-cases/UC-02-qualify-and-route-lead.md">UC-02 — Активная обработка лида</a></li>
+                <li><a href="https://github.com/oksyag/CRM/blob/main/docs/functional/use-cases/UC-03-finalize-lead.md">UC-03 — Финализация лида</a></li>
+            </ul>
+        </section>
+
+        <section id="data" class="section">
+            <h2>Модель данных</h2>
+            <p>Сущности <code>manager</code>, <code>lead</code>, <code>client</code>, ENUM-типы, FK и CHECK-ограничения.</p>
+            <ul class="links">
+                <li><a href="https://github.com/oksyag/CRM/blob/main/docs/data-model.md">data-model.md — описание сущностей и связей</a></li>
+                <li><a href="https://github.com/oksyag/CRM/blob/main/diagrams/erd.mmd">erd.mmd — ERD-диаграмма</a></li>
+            </ul>
+        </section>
+
+        <section id="api" class="section">
+            <h2>Интеграция и API</h2>
+            <p>Контур интеграции «веб-форма → CRM API» и контракт OpenAPI 3.1.</p>
+            <ul class="links">
+                <li><a href="https://github.com/oksyag/CRM/blob/main/docs/integration.md">integration.md — поля, валидации, дедупликация, обработка ошибок</a></li>
+                <li>
+                    <a href="https://github.com/oksyag/CRM/blob/main/api/openapi.yaml">openapi.yaml — OpenAPI 3.1, 8 эндпоинтов</a>
+                    <span class="muted">— открыть в <a href="https://editor.swagger.io/" target="_blank" rel="noopener noreferrer">Swagger Editor</a> или <a href="https://redocly.github.io/redoc/" target="_blank" rel="noopener noreferrer">Redocly</a></span>
+                </li>
+            </ul>
+        </section>
+
+        <section id="sql" class="section">
+            <h2>SQL</h2>
+            <p>Схема PostgreSQL, демонстрационные данные и аналитические запросы.</p>
+            <ul class="links">
+                <li><a href="https://github.com/oksyag/CRM/blob/main/sql/01_create_tables.sql">01_create_tables.sql — схема и индексы</a></li>
+                <li><a href="https://github.com/oksyag/CRM/blob/main/sql/02_sample_data.sql">02_sample_data.sql — демонстрационные данные</a></li>
+                <li><a href="https://github.com/oksyag/CRM/blob/main/sql/03_queries_for_analyst.sql">03_queries_for_analyst.sql — типовые и аналитические запросы</a></li>
+            </ul>
+        </section>
+
+        <section id="diagrams" class="section">
+            <h2>Диаграммы</h2>
+            <p>Все диаграммы в формате Mermaid (<code>.mmd</code>); GitHub рендерит их автоматически при просмотре файла.</p>
+            <ul class="links">
+                <li><a href="https://github.com/oksyag/CRM/blob/main/diagrams/bpmn-lead-lifecycle.mmd">bpmn-lead-lifecycle — BPMN жизненного цикла</a></li>
+                <li><a href="https://github.com/oksyag/CRM/blob/main/diagrams/state-lead-lifecycle.mmd">state-lead-lifecycle — state machine жизненного цикла</a></li>
+                <li><a href="https://github.com/oksyag/CRM/blob/main/diagrams/sequence-webform-to-crm.mmd">sequence-webform-to-crm — приём с веб-формы</a></li>
+                <li><a href="https://github.com/oksyag/CRM/blob/main/diagrams/uml-use-case.mmd">uml-use-case — UC-01..UC-03 и actor-ы</a></li>
+                <li><a href="https://github.com/oksyag/CRM/blob/main/diagrams/erd.mmd">erd — ERD по таблицам</a></li>
+            </ul>
+        </section>
+
+        <section id="templates" class="section">
+            <h2>Шаблоны</h2>
+            <p>Готовые шаблоны для повторного использования.</p>
+            <ul class="links">
+                <li><a href="https://github.com/oksyag/CRM/blob/main/templates/user-story-template.md">user-story-template.md</a></li>
+                <li><a href="https://github.com/oksyag/CRM/blob/main/templates/use-case-template.md">use-case-template.md</a></li>
+                <li><a href="https://github.com/oksyag/CRM/blob/main/templates/change-log-template.md">change-log-template.md</a></li>
+            </ul>
+        </section>
+    </main>
+
+    <footer class="site-footer">
+        <div class="site-footer__inner">
+            <span>Oksana Gaibova</span>
+            <a href="https://github.com/oksyag/CRM" target="_blank" rel="noopener noreferrer">GitHub ↗</a>
+        </div>
+    </footer>
+</body>
+</html>
