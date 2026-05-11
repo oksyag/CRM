@@ -1,0 +1,19 @@
+%% Диаграмма прецедентов (UML use case approximation).
+%% Актёры снаружи системы, use cases внутри подграфа CRM.
+%% Между UC — process-flow стрелки без include/extend.
+flowchart LR
+    actor1["Веб-посетитель"]
+    actor2["Менеджер"]
+
+    subgraph CRM["CRM"]
+        uc1(("UC-01<br>Регистрация<br>нового лида"))
+        uc2(("UC-02<br>Активная<br>обработка"))
+        uc3(("UC-03<br>Финализация"))
+    end
+
+    actor1 --> uc1
+    actor2 --> uc1
+    actor2 --> uc2
+    actor2 --> uc3
+
+    uc1 --> uc2 --> uc3

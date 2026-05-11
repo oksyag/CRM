@@ -1,0 +1,38 @@
+%% ERD по таблицам manager, lead, client.
+%% Все атрибуты лида показаны; ENUM-типы lead_status и lead_source
+%% указаны как имена типов без перечисления значений.
+erDiagram
+    MANAGER ||--o{ LEAD : assignee_id
+    LEAD ||--o| CLIENT : lead_id
+    LEAD ||--o{ LEAD : reopen_of_lead_id
+
+    MANAGER {
+        BIGINT  id          PK
+        TEXT    name
+        BOOLEAN is_active
+    }
+
+    LEAD {
+        BIGINT      id                  PK
+        lead_source source
+        TEXT        full_name
+        TEXT        phone
+        TEXT        email
+        lead_status status
+        BIGINT      assignee_id         FK
+        TIMESTAMPTZ follow_up_at
+        TEXT        close_reason
+        TEXT        comment
+        BIGINT      reopen_of_lead_id   FK
+        TIMESTAMPTZ created_at
+        TIMESTAMPTZ updated_at
+    }
+
+    CLIENT {
+        BIGINT      id          PK
+        BIGINT      lead_id     FK,UK
+        TEXT        full_name
+        TEXT        phone
+        TEXT        email
+        TIMESTAMPTZ created_at
+    }

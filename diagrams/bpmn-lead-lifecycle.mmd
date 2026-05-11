@@ -1,0 +1,41 @@
+%% Жизненный цикл лида в BPMN-стиле (Mermaid flowchart).
+%% Покрывает: дедупликацию, создание, назначение, шлюз исхода
+%% (отложить / конвертировать / закрыть), петлю follow-up.
+flowchart TD
+    start((Поступила заявка))
+    validate[Валидация и дедупликация]
+    gw_dedup{Результат дедупликации?}
+    end_dup((Дубликат<br>409 duplicate))
+    end_conflict((Конфликт<br>409 conflict))
+    create_reopen["Создать лид с reopen_of_lead_id"]
+    create_new[Создать новый лид]
+    state_new[Status = Новый]
+    assign["Назначить ответственного<br>PATCH /leads/{id}/assignee"]
+    move_iw["Перевести в работу<br>PATCH /leads/{id}/status"]
+    state_iw[Status = В работе]
+    gw_outcome{Действие менеджера?}
+    set_followup["PATCH /leads/{id}/status<br>статус Отложен, follow_up_at"]
+    state_post[Status = Отложен]
+    wait[Ожидание follow_up_at]
+    resume["PATCH /leads/{id}/status<br>статус В работе"]
+    convert["POST /leads/{id}/convert<br>создать Client"]
+    end_success((Успешно))
+    close_false["PATCH /leads/{id}/status<br>статус Ложный, close_reason"]
+    end_false((Ложный))
+    close_refused["PATCH /leads/{id}/status<br>статус Отказ, close_reason"]
+    end_refused((Отказ))
+
+    start --> validate --> gw_dedup
+    gw_dedup -- "активный дубликат" --> end_dup
+    gw_dedup -- "конфликт идентичности" --> end_conflict
+    gw_dedup -- "только закрытые совпадения" --> create_reopen
+    gw_dedup -- "совпадений нет" --> create_new
+    create_reopen --> state_new
+    create_new --> state_new
+    state_new --> assign --> move_iw --> state_iw
+    state_iw --> gw_outcome
+    gw_outcome -- "отложить" --> set_followup --> state_post
+    state_post --> wait --> resume --> state_iw
+    gw_outcome -- "конвертировать" --> convert --> end_success
+    gw_outcome -- "закрыть как Ложный" --> close_false --> end_false
+    gw_outcome -- "закрыть как Отказ" --> close_refused --> end_refused

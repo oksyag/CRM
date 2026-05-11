@@ -1,0 +1,23 @@
+%% Жизненный цикл лида как state machine (Mermaid stateDiagram-v2).
+%% Подписи переходов — методы API, через которые они выполняются.
+stateDiagram-v2
+    state "Новый" as lead_new
+    state "В работе" as lead_in_progress
+    state "Отложен" as lead_postponed
+    state "Успешно" as lead_success
+    state "Ложный" as lead_closed_false
+    state "Отказ" as lead_closed_refused
+
+    [*] --> lead_new : создание (POST /web/leads или POST /leads)
+    lead_new --> lead_in_progress : PATCH /assignee + PATCH /status
+    lead_in_progress --> lead_postponed : PATCH /status (follow_up_at)
+    lead_postponed --> lead_in_progress : PATCH /status
+    lead_in_progress --> lead_success : POST /convert (создан Client)
+    lead_postponed --> lead_success : POST /convert (создан Client)
+    lead_in_progress --> lead_closed_false : PATCH /status (close_reason)
+    lead_postponed --> lead_closed_false : PATCH /status (close_reason)
+    lead_in_progress --> lead_closed_refused : PATCH /status (close_reason)
+    lead_postponed --> lead_closed_refused : PATCH /status (close_reason)
+    lead_success --> [*]
+    lead_closed_false --> [*]
+    lead_closed_refused --> [*]

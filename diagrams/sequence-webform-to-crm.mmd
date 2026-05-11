@@ -1,0 +1,46 @@
+%% Sequence-диаграмма приёма лида с веб-формы.
+%% Покрывает все ветки ответа CRM API: 400, 429, 409 duplicate,
+%% 409 conflict, 201 (повтор с reopen_of_lead_id), 201 (новый), 500.
+sequenceDiagram
+    autonumber
+    actor visitor as Веб-посетитель
+    participant form as Веб-форма
+    participant api as CRM API
+    participant db as Хранилище
+
+    visitor->>form: Заполнить форму, поставить consent=true
+    form->>api: POST /web/leads (full_name, phone, email, consent=true) + Idempotency-Key
+    api->>api: Валидация полей и формата email, проверка consent=true
+    api->>api: Нормализация phone и email
+
+    alt Ошибка валидации
+        api-->>form: 400 ErrorResponse validation_error
+        form-->>visitor: Сообщение об ошибке валидации
+    else Anti-spam guard
+        api-->>form: 429 ErrorResponse rate_limited
+        form-->>visitor: Сообщение - попробуйте позже
+    else Поиск активных совпадений
+        api->>db: SELECT lead по активным статусам и phone или email
+        db-->>api: Совпадения
+
+        alt Активный дубликат
+            api-->>form: 409 ErrorResponse duplicate с existing_lead_id
+            form-->>visitor: Сообщение о дубликате
+        else Конфликт идентичности
+            api-->>form: 409 ErrorResponse conflict
+            form-->>visitor: Сообщение о ручной проверке
+        else Совпадение только с закрытыми (повтор)
+            api->>db: INSERT lead со статусом Новый, source=web, reopen_of_lead_id
+            db-->>api: Lead
+            api-->>form: 201 Lead с reopen_of_lead_id
+            form-->>visitor: Подтверждение
+        else Совпадений нет (новый лид)
+            api->>db: INSERT lead со статусом Новый, source=web
+            db-->>api: Lead
+            api-->>form: 201 Lead
+            form-->>visitor: Подтверждение
+        else Внутренняя ошибка
+            api-->>form: 500 ErrorResponse internal_error
+            form-->>visitor: Общее сообщение об ошибке
+        end
+    end
